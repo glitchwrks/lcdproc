@@ -1,0 +1,78 @@
+# Build LCDd and the clients, run tests/client-reconnect.sh, and check that
+# a release tarball builds (make distcheck).
+#
+# Optional libraries are installed so that as many drivers as possible are
+# built; a driver whose library isn't available is skipped by configure, as
+# on any other system. Warnings don't fail the build.
+
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux (${{ matrix.cc }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build tools and driver libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf automake pkg-config clang \
+            libncurses-dev libusb-dev libusb-1.0-0-dev libftdi1-dev \
+            libx11-dev libfreetype-dev libgpiod-dev libxosd-dev \
+            liblirc-dev
+
+      - name: Configure
+        run: |
+          sh ./autogen.sh
+          ./configure --enable-drivers=all
+
+      - name: Build
+        run: make -j"$(nproc)"
+
+      - name: Test client reconnects
+        run: sh tests/client-reconnect.sh
+
+      - name: Check the release tarball builds
+        if: matrix.cc == 'gcc'
+        run: make -j"$(nproc)" distcheck DISTCHECK_CONFIGURE_FLAGS=--enable-drivers=all
+
+  alpine:
+    name: Alpine Linux (musl)
+    runs-on: ubuntu-latest
+    container: alpine:latest
+    steps:
+      - name: Install build tools and driver libraries
+        run: |
+          apk add --no-cache build-base autoconf automake pkgconf linux-headers \
+            procps-ng \
+            ncurses-dev libusb-dev libusb-compat-dev libftdi1-dev \
+            libx11-dev freetype-dev
+
+      - uses: actions/checkout@v7
+
+      - name: Configure
+        run: |
+          sh ./autogen.sh
+          ./configure --enable-drivers=all
+
+      - name: Build
+        run: make -j"$(nproc)"
+
+      - name: Test client reconnects
+        run: sh tests/client-reconnect.sh
